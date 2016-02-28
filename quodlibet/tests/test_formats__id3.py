@@ -4,12 +4,12 @@ from tests import TestCase, DATA_DIR, mkstemp
 
 import os
 import shutil
-import StringIO
 
 from quodlibet import config, const
 from quodlibet.formats._image import EmbeddedImage
 from quodlibet.formats.mp3 import MP3File
 from quodlibet.formats._id3 import ID3hack
+from quodlibet.compat import cBytesIO
 
 import mutagen
 
@@ -76,7 +76,7 @@ class TID3Images(TestCase):
         self.assertFalse(song.has_images)
 
     def test_set_image(self):
-        fileobj = StringIO.StringIO("foo")
+        fileobj = cBytesIO(b"foo")
         image = EmbeddedImage(fileobj, "image/jpeg", 10, 10, 8)
 
         song = MP3File(self.filename)
@@ -92,7 +92,7 @@ class TID3Images(TestCase):
         f = mutagen.File(self.filename)
         f.delete()
         song = MP3File(self.filename)
-        fileobj = StringIO.StringIO("foo")
+        fileobj = cBytesIO(b"foo")
         image = EmbeddedImage(fileobj, "image/jpeg", 10, 10, 8)
         song.set_image(image)
 
@@ -135,6 +135,46 @@ class TID3File(TestCase):
         self.assertEquals(MP3File(self.filename)['date'], '2010-01-13')
         f.delete()
         MP3File(self.filename)
+
+    def test_USLT(self):
+        """Tests reading and writing of lyrics in USLT"""
+        f = mutagen.File(self.filename)
+        f.tags.add(mutagen.id3.USLT(encoding=3, desc=u'', lang='\x00\x00\x00',
+                   text=u'lyrics'))
+        f.tags.add(mutagen.id3.USLT(encoding=3, desc=u'desc',
+                   lang='\x00\x00\x00', text=u'lyrics with non-empty desc'))
+        f.tags.add(mutagen.id3.USLT(encoding=3, desc=u'', lang='xyz',
+                   text=u'lyrics with non-empty lang'))
+        f.save()
+
+        f = MP3File(self.filename)
+        self.failUnlessEqual(f['lyrics'], u'lyrics')
+        f['lyrics'] = u'modified lyrics'
+        f.write()
+
+        f = mutagen.File(self.filename)
+        self.failUnlessEqual(f.tags[u'USLT::\x00\x00\x00'], u'modified lyrics')
+        self.failUnlessEqual(f.tags[u'USLT:desc:\x00\x00\x00'],
+                             u'lyrics with non-empty desc')
+        self.failUnlessEqual(f.tags[u'USLT::xyz'],
+                             u'lyrics with non-empty lang')
+
+        f = MP3File(self.filename)
+        self.failUnlessEqual(f['lyrics'], u'modified lyrics')
+        del f['lyrics']
+        f.write()
+
+        f = mutagen.File(self.filename)
+        self.failIf('USLT' in f.tags,
+                    'There should be no USLT tag when lyrics were deleted')
+        self.failUnlessEqual(f.tags[u'USLT:desc:\x00\x00\x00'],
+                             u'lyrics with non-empty desc')
+        self.failUnlessEqual(f.tags[u'USLT::xyz'],
+                             u'lyrics with non-empty lang')
+
+        f = MP3File(self.filename)
+        self.failIf('lyrics' in f,
+                   'There should be no lyrics key when there is no USLT')
 
     def test_lang_read(self):
         """Tests reading of language from TXXX"""

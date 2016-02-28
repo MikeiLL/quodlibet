@@ -6,7 +6,7 @@
 # published by the Free Software Foundation
 
 import os
-import urlparse
+from quodlibet.compat import urlsplit
 import errno
 
 from gi.repository import Gtk, GObject, Gdk, Gio, Pango
@@ -157,7 +157,7 @@ def get_gtk_bookmarks():
                 if not parts:
                     continue
                 folder_url = parts[0]
-                folders.append(urlparse.urlsplit(folder_url)[2])
+                folders.append(urlsplit(folder_url)[2])
     except EnvironmentError:
         pass
 
@@ -180,7 +180,7 @@ class DirectoryTree(RCMHintedTreeView, MultiDragTreeView):
         if initial is not None:
             assert is_fsnative(initial)
 
-        column = TreeViewColumn(_("Folders"))
+        column = TreeViewColumn(title=_("Folders"))
         column.set_sizing(Gtk.TreeViewColumnSizing.AUTOSIZE)
         render = Gtk.CellRendererPixbuf()
         render.set_property('icon-name', Icons.FOLDER)
@@ -489,7 +489,7 @@ class FileSelector(Paned):
         model = ObjectStore()
         filelist = AllTreeView(model=model)
 
-        column = TreeViewColumn(_("Songs"))
+        column = TreeViewColumn(title=_("Songs"))
         column.set_sizing(Gtk.TreeViewColumnSizing.AUTOSIZE)
         render = Gtk.CellRendererPixbuf()
         render.props.xpad = 3

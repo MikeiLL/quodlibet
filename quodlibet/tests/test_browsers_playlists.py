@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
+from quodlibet.browsers.playlists.prefs import DEFAULT_PATTERN_TEXT
 from quodlibet.browsers.playlists.util import *
 from quodlibet.util.collection import FileBackedPlaylist
 from tests import TestCase, DATA_DIR, mkstemp, mkdtemp, _TEMP_DIR
-from helper import dummy_path
+from .helper import dummy_path
 
 import os
 import shutil
@@ -242,3 +243,8 @@ class TPlaylistsBrowser(TSearchBar):
         self.bar._rename(0, "zBig")
         self.assertEquals(self.bar.playlists()[0], self.small)
         self.assertEquals(self.bar.playlists()[1].name, "zBig")
+
+    def test_default_display_pattern(self):
+        pattern_text = self.bar.display_pattern_text
+        self.failUnlessEqual(pattern_text, DEFAULT_PATTERN_TEXT)
+        self.failUnless("<~name>" in pattern_text)
