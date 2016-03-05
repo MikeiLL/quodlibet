@@ -63,7 +63,7 @@ class PatternLexer(Scanner):
                           ])
 
     def text(self, scanner, string):
-        return PatternLexeme(TEXT, re.sub(r"\\(.)", r"\1", string))
+        return PatternLexeme(TEXT, re.sub(r"\\([|<>\\])", r"\1", string))
 
     def table(self, scanner, string):
         return PatternLexeme(
@@ -184,6 +184,7 @@ class PatternParser(object):
 class PatternFormatter(object):
     _format = None
     _post = None
+    _text = None
 
     def __init__(self, func, list_func, tags):
         self.__func = func
@@ -247,22 +248,21 @@ class PatternFormatter(object):
         always returns pairs of display and sort values.
         The returned set will never be empty (e.g. for an empty pattern).
         """
+
         vals = [(u"", u"")]
         for val in self.__list_func(self.SongProxy(song, self._format)):
             if not val:
                 continue
-            if isinstance(val, tuple): # tuple of display,sort pair to add
-                vals = [(r[0] + val[0], r[1] + val[1]) for r in vals]
-            elif isinstance(val, list): # list of strings or pairs
-                vals = [((r[0] + part[0], r[1] + part[1])
-                         if isinstance(part, tuple)
-                         else (r[0] + part, r[1] + part))
+            if isinstance(val, list): # list of pairs
+                vals = [(r[0] + part[0], r[1] + part[1])
                         for part in val for r in vals]
             else: # just a display string to concatenate
                 vals = [((r[0] + val, r[1] + val)) for r in vals]
+
         if self._post:
             vals = ((self._post(v[0], song), self._post(v[1], song))
                     for v in vals)
+
         return set(vals)
 
     __mod__ = format
@@ -272,7 +272,7 @@ class PatternCompiler(object):
     def __init__(self, root):
         self.__root = root.node
 
-    def compile(self, song_func):
+    def compile(self, song_func, text_formatter=None):
         tags = []
         queries = {}
         content = [
@@ -280,11 +280,14 @@ class PatternCompiler(object):
             "  x = s." + song_func,
             "  r = []",
             "  a = r.append"]
-        content.extend(self.__tag(self.__root, {}, {}, tags, queries))
+        content.extend(
+            self.__tag(self.__root, {}, {}, tags, queries, text_formatter))
         content.append("  return r")
         code = "\n".join(content)
 
         scope = dict(itervalues(queries))
+        if text_formatter:
+            scope["_format"] = text_formatter
         exec_(compile(code, "<string>", "exec"), scope)
         return scope["f"], tags
 
@@ -318,16 +321,21 @@ class PatternCompiler(object):
             r_var = qscope[query]
         return r_var
 
-    def __tag(self, node, scope, qscope, tags, queries):
+    def __tag(self, node, scope, qscope, tags, queries, text_formatter):
         text = []
         if isinstance(node, TextNode):
-            text.append('a(%r)' % node.text)
+            if text_formatter:
+                text.append('a(_format(%r))' % node.text)
+            else:
+                text.append('a(%r)' % node.text)
         elif isinstance(node, ConditionNode):
             var = self.__get_query(text, scope, qscope, node.expr, queries)
             ic = self.__tag(
-                node.ifcase, dict(scope), dict(qscope), tags, queries)
+                node.ifcase, dict(scope), dict(qscope), tags, queries,
+                text_formatter)
             ec = self.__tag(
-                node.elsecase, dict(scope), dict(qscope), tags, queries)
+                node.elsecase, dict(scope), dict(qscope), tags, queries,
+                text_formatter)
             if not ic and not ec:
                 text.pop(-1)
             elif ic:
@@ -345,7 +353,8 @@ class PatternCompiler(object):
             text.append('a(%s)' % var)
         elif isinstance(node, PatternNode):
             for child in node.children:
-                for line in self.__tag(child, scope, qscope, tags, queries):
+                for line in self.__tag(child, scope, qscope, tags, queries,
+                                       text_formatter):
                     text.append("  " + line)
         return text
 
@@ -355,8 +364,8 @@ def Pattern(string, Kind=PatternFormatter, MAX_CACHE_SIZE=100, cache={}):
         if len(cache) > MAX_CACHE_SIZE:
             cache.clear()
         comp = PatternCompiler(PatternParser(PatternLexer(string)))
-        func, tags = comp.compile("comma")
-        list_func, tags = comp.compile("list_separate")
+        func, tags = comp.compile("comma", Kind._text)
+        list_func, tags = comp.compile("list_separate", Kind._text)
         cache[(Kind, string)] = Kind(func, list_func, tags)
     return cache[(Kind, string)]
 
@@ -447,21 +456,23 @@ def XMLFromPattern(string):
     return Pattern(string, _XMLFromPattern)
 
 
-def pattern_from_markup(string):
+class _XMLFromMarkupPattern(_XMLFromPattern):
 
-    tags = ["b", "big", "i", "s", "sub", "sup", "small", "tt", "u", "span",
-            "a"]
-    pat = "(?:%s)" % "|".join(tags)
+    @classmethod
+    def _text(cls, string):
+        tags = ["b", "big", "i", "s", "sub", "sup", "small", "tt", "u", "span",
+                "a"]
+        pat = "(?:%s)" % "|".join(tags)
 
-    def repl_func(match):
-        orig, pre, body = match.group(0, 1, 2)
-        if len(pre) % 2:
-            return orig
-        return r"%s\<%s\>" % (pre, body)
+        def repl_func(match):
+            orig, pre, body = match.group(0, 1, 2)
+            if len(pre) % 2:
+                return orig[1:]
+            return r"%s<%s>" % (pre, body)
 
-    string = re.sub(r"(\\*)\[(/?%s\s*)\]" % pat, repl_func, string)
-    string = re.sub(r"(\\*)\[((a|span)\s+.*?)\]", repl_func, string)
-    return string
+        string = re.sub(r"(\\*)\[(/?%s\s*)\]" % pat, repl_func, string)
+        string = re.sub(r"(\\*)\[((a|span)\s+.*?)\]", repl_func, string)
+        return string
 
 
 def XMLFromMarkupPattern(string):
@@ -471,8 +482,7 @@ def XMLFromMarkupPattern(string):
     To get text like "[b]" escape the first '[' like "\[b]"
     """
 
-    string = pattern_from_markup(string)
-    return Pattern(string, _XMLFromPattern)
+    return Pattern(string, _XMLFromMarkupPattern)
 
 
 class _URLFromPattern(PatternFormatter):
