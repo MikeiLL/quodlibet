@@ -79,13 +79,13 @@ class IndicatorMenu(Gtk.Menu):
                                      GObject.BindingFlags.BIDIRECTIONAL)
         player_options.notify("repeat")
 
-        safter = Gtk.CheckMenuItem(label=_("Stop _after this song"),
+        safter = Gtk.CheckMenuItem(label=_("Stop _After This Song"),
                                    use_underline=True)
         player_options.bind_property("stop-after", safter, "active",
                                      GObject.BindingFlags.BIDIRECTIONAL)
         player_options.notify("stop-after")
 
-        browse = qltk.MenuItem(_("_Browse Library"), Icons.EDIT_FIND)
+        browse = qltk.MenuItem(_("Open _Browser"), Icons.EDIT_FIND)
         browse_sub = Gtk.Menu()
 
         for Kind in browsers.browsers:

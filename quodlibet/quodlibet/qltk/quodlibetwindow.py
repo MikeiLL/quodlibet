@@ -61,7 +61,7 @@ class PlayerOptions(GObject.Object):
     useful for external interfaces (mpd, mpris, etc.) and for reducing
     the dependency on the state holding widgets in the main window.
 
-    Usable as long as the main window is not destroyedor until destroy()
+    Usable as long as the main window is not destroyed, or until `destroy()`
     is called.
     """
 
@@ -123,9 +123,8 @@ class PlayerOptions(GObject.Object):
     def single(self):
         """If only the current song is considered as next track
 
-        This means in case repeat() is False the playlist will end after
-        this song finishes. In cas.e repeat() is True the current song will
-        be replayed.
+        When `repeat` is False the playlist will end after this song finishes.
+        When `repeat` is True the current song will be replayed.
         """
 
         return self._order.get_active_name() == "onesong"
@@ -263,7 +262,7 @@ class CurrentColumn(SongListColumn):
 
 
 class MainSongList(SongList):
-    # The SongList that represents the current playlist.
+    """SongList for the main browser's displayed songs."""
 
     _activated = False
 
@@ -335,10 +334,13 @@ class TopBar(Gtk.Toolbar):
         info_item.add(box)
         qltk.add_css(self, "GtkToolbar {padding: 3px;}")
 
+        self._pattern_box = Gtk.VBox()
+
         # song text
         info_pattern_path = os.path.join(quodlibet.get_user_dir(), "songinfo")
         text = SongInfo(library.librarian, player, info_pattern_path)
-        box.pack_start(Align(text, border=3), True, True, 0)
+        self._pattern_box.pack_start(Align(text, border=3), True, True, 0)
+        box.pack_start(self._pattern_box, True, True, 0)
 
         # cover image
         self.image = CoverImage(resize=True)
@@ -363,6 +365,14 @@ class TopBar(Gtk.Toolbar):
         context = self.get_style_context()
         context.add_class("primary-toolbar")
 
+    def set_seekbar_widget(self, widget):
+        children = self._pattern_box.get_children()
+        if len(children) > 1:
+            self._pattern_box.remove(children[-1])
+
+        if widget:
+            self._pattern_box.pack_start(widget, False, True, 0)
+
     def _on_volume_changed(self, player, *args):
         config.set("memory", "volume", str(player.volume))
 
@@ -382,10 +392,10 @@ class TopBar(Gtk.Toolbar):
             library.albums.refresh(refresh_albums)
 
 
-class ReapeatButton(Gtk.ToggleButton):
+class RepeatButton(Gtk.ToggleButton):
 
     def __init__(self):
-        super(ReapeatButton, self).__init__(
+        super(RepeatButton, self).__init__(
             image=SymbolicIconImage(
                 "media-playlist-repeat", Gtk.IconSize.SMALL_TOOLBAR))
 
@@ -418,7 +428,7 @@ class StatusBarBox(Gtk.HBox):
         self.order = order = PlayOrder(model, player)
         self.pack_start(order, False, True, 0)
 
-        self.repeat = repeat = ReapeatButton()
+        self.repeat = repeat = RepeatButton()
         self.pack_start(repeat, False, True, 0)
         repeat.connect('toggled', self.__repeat, model)
         model.repeat = repeat.get_active()
@@ -807,6 +817,15 @@ class QuodLibetWindow(Window, PersistentWindowMixin):
         self.connect("destroy", self.__destroy)
 
         self.enable_window_tracking("quodlibet")
+
+    def set_seekbar_widget(self, widget):
+        """Add an alternative seek bar widget.
+
+        Args:
+            widget (Gtk.Widget): a new widget or None to remove the current one
+        """
+
+        self.top_bar.set_seekbar_widget(widget)
 
     def set_as_osx_window(self, osx_app):
         assert osx_app
@@ -1524,8 +1543,7 @@ class QuodLibetWindow(Window, PersistentWindowMixin):
             self.browser.activate()
 
     def __set_time(self, info, songs):
-        i = len(songs)
         length = sum(song.get("~#length", 0) for song in songs)
-        t = self.browser.statusbar(i) % {
-            'count': i, 'time': util.format_time_long(length)}
+        t = self.browser.status_text(count=len(songs),
+                                     time=util.format_time_long(length))
         self.statusbar.set_default_text(t)
